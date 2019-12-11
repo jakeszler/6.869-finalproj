@@ -1,0 +1,189 @@
+/******************************************************************************
+ *  Copyright (c) 2018, Xilinx, Inc.
+ *  All rights reserved.
+ * 
+ *  Redistribution and use in source and binary forms, with or without 
+ *  modification, are permitted provided that the following conditions are met:
+ *
+ *  1.  Redistributions of source code must retain the above copyright notice, 
+ *     this list of conditions and the following disclaimer.
+ *
+ *  2.  Redistributions in binary form must reproduce the above copyright 
+ *      notice, this list of conditions and the following disclaimer in the 
+ *      documentation and/or other materials provided with the distribution.
+ *
+ *  3.  Neither the name of the copyright holder nor the names of its 
+ *      contributors may be used to endorse or promote products derived from 
+ *      this software without specific prior written permission.
+ *
+ *  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ *  AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, 
+ *  THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR 
+ *  PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR 
+ *  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, 
+ *  EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, 
+ *  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+ *  OR BUSINESS INTERRUPTION). HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, 
+ *  WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR 
+ *  OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF 
+ *  ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ *****************************************************************************/
+ 
+/*****************************************************************************
+*
+*     Author: Kristof Denolf <kristof@xilinx.com>
+*     Date:   2018/01/30
+*
+*****************************************************************************/
+
+#include "xfStereoBMCoreForVivadoHLS.h"
+
+///SDx temporal fix for Clang issue
+#ifdef __SDSCC__
+#undef __ARM_NEON__
+#undef __ARM_NEON
+#include <opencv2/core/core.hpp>
+#define __ARM_NEON__
+#define __ARM_NEON
+#else
+#include <opencv2/core/core.hpp>
+#endif
+//#include <opencv2/core/core.hpp>
+
+
+#include <Utils/inc/UtilsForXfOpenCV.h>
+#include "xfSDxStereoBM.h"
+
+//PL instantiation parameters
+
+
+namespace xF {
+
+
+class StereoBMImpl : public xF::StereoBM
+{
+private:
+	xf::xFSBMState<${blockSizeCMakeParamStereoBM},${numberOfDisparitiesCMakeParamStereoBM},${numberOfDisparityUnitsCMakeParamStereoBM}> xfsbmstate;
+	
+public:
+	StereoBMImpl() {};
+	
+	StereoBMImpl(int numDisparities, int blockSize)
+	{
+		const int blockSizeTP = ${blockSizeCMakeParamStereoBM};
+		const int numberOfDisparitiesTP = ${numberOfDisparitiesCMakeParamStereoBM};
+	
+        //run-time
+		assert(blockSize == blockSizeTP);
+		assert(numDisparities == numberOfDisparitiesTP);	
+	}
+	
+	void setMinDisparity(int minDisparity)
+	{	xfsbmstate.minDisparity = minDisparity;
+		return;
+	}
+	
+	void setTextureThreshold(int textureThreshold)
+	{
+		xfsbmstate.textureThreshold = textureThreshold;
+		return;
+	}
+
+	void setUniquenessRatio (int uniquenessRatio)
+	{
+		xfsbmstate.uniquenessRatio = uniquenessRatio;
+		return;
+	}
+
+	void setPreFilterCap (int preFilterCap)
+	{
+		xfsbmstate.preFilterCap=preFilterCap;
+		return;
+	}
+	
+	int getMinDisparity()
+	{	return xfsbmstate.minDisparity;
+	}
+	
+	int getTextureThreshold()
+	{
+		return xfsbmstate.textureThreshold;
+	}
+
+	int getUniquenessRatio ()
+	{
+		return xfsbmstate.uniquenessRatio;
+	}
+
+	int getPreFilterCap ()
+	{
+		return xfsbmstate.preFilterCap;
+	}
+
+	void compute(cv::Mat &left, cv::Mat &right, cv::Mat &disparity)
+	{
+		const int blockSizeTP = ${blockSizeCMakeParamStereoBM};
+		const int numberOfDisparitiesTP = ${numberOfDisparitiesCMakeParamStereoBM};
+		const int numberOfDisparityUnitsTP = ${numberOfDisparityUnitsCMakeParamStereoBM};
+		const int maxWidthTP = ${maxWidthCMakeParamStereoBM};
+		const int maxHeightTP = ${maxHeightCMakeParamStereoBM};
+		const int srcTypeTP = ${srcTypeCMakeParamStereoBM};
+		const int disparityTypeTP = ${disparityTypeCMakeParamStereoBM};
+		const int NPCTP = ${NPCCMakeParamStereoBM};
+
+		std::cout << "in xf::StereoBM::compute" << std::endl;
+		
+		//check for limitations of xfOpenCV module
+		//run-time
+		assert(left.channels() == 1);
+		assert(right.channels() == 1);
+		assert(disparity.channels() == 1);
+	
+        //compile-time checks
+		static_assert(disparityTypeTP == XF_16UC1, "xfOpenCV only supports 16UC1 as a 12.4 fixed precision format");
+		static_assert(srcTypeTP == XF_8UC1, "xfOpenCV only supports 8UC1");
+		static_assert(NPCTP == XF_NPPC1, "xfOpenCV only supports 1 pixel per clock");
+		
+		xf::Mat<srcTypeTP, maxHeightTP, maxWidthTP, NPCTP>* leftMat;
+		xf::Mat<srcTypeTP, maxHeightTP, maxWidthTP, NPCTP>* rightMat;
+		xf::Mat<disparityTypeTP, maxHeightTP, maxWidthTP, NPCTP>* disparityMat;
+
+		// perform some checks on the left and right type
+		cvToXfSource(left,leftMat);
+		cvToXfSource(right,rightMat);
+	
+		// perform some checks on the disparity type
+		bool dstPostConversion = cvToXfDisparity(disparity,disparityMat,left);
+		
+		std::cout << "left cv ptr: " << (void *) left.data << std::endl;
+		std::cout << "left xf ptr: " << leftMat->data << std::endl;
+		std::cout << "right cv ptr: " << (void *) right.data << std::endl;
+		std::cout << "right xf ptr: " << rightMat->data << std::endl;
+		std::cout << "disparity cv ptr: " << (void *) disparity.data << std::endl;
+		std::cout << "disparity xf ptr: " << disparityMat->data << std::endl;
+		
+		// call CoreForVivadoHLS wrapper of xf::StereoBM
+		std::cout << "Calling CoreForVivadoHLS" << std::endl;
+		xF_stereoBMCompute(leftMat, rightMat, disparityMat, xfsbmstate);
+
+		//perform checks on the dst type
+		if (dstPostConversion) { // TBD: need to implement proper Q12.4 to floating point conversion
+			xfMatDepthPostConversion(disparity,disparityMat);
+		}
+	
+		delete leftMat;
+		delete rightMat;
+		delete disparityMat;
+	
+		return;
+	}
+};
+
+cv::Ptr<xF::StereoBM> StereoBM::create(int numDisparities, int blockSize)
+{
+	return cv::makePtr<xF::StereoBMImpl>(numDisparities,blockSize);
+}
+
+
+} //namespace xF
